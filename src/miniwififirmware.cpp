@@ -42,8 +42,8 @@ WiFiUDP Udp;
 WiFiServer *server;
 ESP8266WebServer *ssdpwebserver;
 HTTPClient http;
-boolean sockets[MAX_CLIENTS], sslsockets[MAX_CLIENTS];
-boolean servessdp;
+bool sockets[MAX_CLIENTS], sslsockets[MAX_CLIENTS];
+bool servessdp;
 char ssdpschemaurl[32];
 
 char syncread();
@@ -51,8 +51,8 @@ uint8_t readbuf(char *buf);
 void readstr(char *buf);
 void writebuf(char *buf, uint8_t len);
 void writestr(char *buf);
-int8_t getsock(boolean *sockets);
-boolean verifysock(int8_t s, boolean *slist);
+int8_t getsock(bool *sockets);
+bool verifysock(int8_t s, bool *slist);
 
 void setup() {
     int i;
@@ -583,7 +583,7 @@ void loop() {
     }
     delay(1);
 }
-        
+
 char syncread()
 {
     while(!Serial.available())
@@ -624,7 +624,7 @@ void writestr(char *buf)
     writebuf(buf, strlen(buf));
 }
 
-int8_t getsock(boolean *sockets)
+int8_t getsock(bool *sockets)
 {
     int8_t s;
 
@@ -635,7 +635,7 @@ int8_t getsock(boolean *sockets)
     return -1;
 }
 
-boolean verifysock(int8_t s, boolean *slist)
+bool verifysock(int8_t s, bool *slist)
 {
     if((s < 0) || (s >= MAX_CLIENTS) || (slist[s] == false))
         return false;
