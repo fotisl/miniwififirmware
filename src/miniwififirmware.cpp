@@ -20,6 +20,8 @@
  * clients.
  */
 #define MAX_CLIENTS 5
+/* Change to the pin which will send the interrupt. */
+#define INT_PIN     5
 
 ADC_MODE(ADC_VCC);
 
@@ -43,6 +45,7 @@ WiFiServer *server;
 ESP8266WebServer *ssdpwebserver;
 HTTPClient http;
 bool sockets[MAX_CLIENTS], sslsockets[MAX_CLIENTS];
+bool intsocket[MAX_CLIENTS], intsslsocket[MAX_CLIENTS], intserversocket, interrupted;
 bool servessdp;
 char ssdpschemaurl[32];
 
@@ -53,6 +56,7 @@ void writebuf(char *buf, uint8_t len);
 void writestr(char *buf);
 int8_t getsock(bool *sockets);
 bool verifysock(int8_t s, bool *slist);
+void interrupt();
 
 void setup() {
     int i;
@@ -61,8 +65,13 @@ void setup() {
 
     WiFi.mode(WIFI_STA);
 
+    pinMode(INT_PIN, OUTPUT);
+    digitalWrite(INT_PIN, LOW);
+
     for(i = 0; i < MAX_CLIENTS; i++)
-        sockets[i] = sslsockets[i] = false;
+        sockets[i] = sslsockets[i] = intsocket[i] = intsslsocket[i] = false;
+    intserversocket = false;
+    interrupted = false;
     server = NULL;
     ssdpwebserver = NULL;
     servessdp = false;
@@ -108,6 +117,10 @@ void loop() {
             case 0x04:
                 u16 = ESP.getVcc();
                 writebuf((char *) &u16, 2);
+                break;
+            /* Function 0x05: Clear has interrupted flag */
+            case 0x05:
+                interrupted = false;
                 break;
             /* Function 0x10: Connect to WiFi */
             case 0x10:
@@ -280,6 +293,21 @@ void loop() {
                 writebuf((char *) &i8, 1);
                 writebuf(buf1, i8);
                 break;
+            /* Function 0x27: Set/clear interrupt flag for socket */
+            case 0x27:
+                readbuf((char *) &i8);
+                readbuf((char *) &i8b);
+                if(verifysock(i8, sockets) == false) {
+                    i8 = -1;
+                } else {
+                    if(i8b == 1)
+                        intsocket[i8] = true;
+                    else
+                        intsocket[i8] = false;
+                    i8 = 0;
+                }
+                writebuf((char *) &i8, 1);
+                break;
             /* Function 0x30: SSL connect */
             case 0x30:
                 readstr(buf1);
@@ -369,6 +397,21 @@ void loop() {
                 writebuf((char *) &i8, 1);
                 writebuf(buf1, i8);
                 break;
+            /* Function 0x37: Set/clear interrupt flag for socket */
+            case 0x37:
+                readbuf((char *) &i8);
+                readbuf((char *) &i8b);
+                if(verifysock(i8, sslsockets) == false) {
+                    i8 = -1;
+                } else {
+                    if(i8b == 1)
+                        intsslsocket[i8] = true;
+                    else
+                        intsslsocket[i8] = false;
+                    i8 = 0;
+                }
+                writebuf((char *) &i8, 1);
+                break;
             /* Function 0x40: UDP send */
             case 0x40:
                 readstr(buf1);
@@ -433,6 +476,20 @@ void loop() {
                     clients[i8] = new WiFiClient(sclient);
                 } else {
                     i8 = -1;
+                }
+                writebuf((char *) &i8, 1);
+                break;
+            /* Function 0x53: Set/clear interrupt flag for server */
+            case 0x53:
+                readbuf((char *) &i8);
+                if(server == NULL) {
+                    i8 = -1;
+                } else {
+                    if(i8 == 1)
+                        intserversocket = true;
+                    else
+                        intserversocket = false;
+                    i8 = 0;
                 }
                 writebuf((char *) &i8, 1);
                 break;
@@ -581,6 +638,26 @@ void loop() {
                 break;
         }
     }
+
+    for(i = 0; (i < MAX_CLIENTS) && (interrupted == false); i++) {
+        if((sockets[i] == true) && (intsocket[i] == true)) {
+            if(clients[i]->available()) {
+                interrupt();
+                break;
+            }
+        }
+        if((sslsockets[i] == true) && (intsslsocket[i] == true)) {
+            if(sslclients[i]->available()) {
+                interrupt();
+                break;
+            }
+        }
+    }
+    if((interrupted == false) && (server != NULL) && (intserversocket == true)) {
+        if(server->hasClient())
+            interrupt();
+    }
+
     delay(1);
 }
 
@@ -640,4 +717,12 @@ bool verifysock(int8_t s, bool *slist)
     if((s < 0) || (s >= MAX_CLIENTS) || (slist[s] == false))
         return false;
     return true;
+}
+
+void interrupt()
+{
+    interrupted = true;
+    digitalWrite(INT_PIN, HIGH);
+    delay(100);
+    digitalWrite(INT_PIN, LOW);
 }
